@@ -5,15 +5,6 @@ run-name: "Release #${{ github.run_number }} (${{ inputs.bump }}) ${{inputs.disp
 on:
   workflow_dispatch:
     inputs:
-      bump:
-        description: "Semantic version bump level"
-        required: true
-        default: "patch"
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
       configuration:
         description: "Build configuration"
         required: false
@@ -54,7 +45,6 @@ jobs:
         uses: mathieudutour/github-tag-action@v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          default_bump: ${{ inputs.bump }}
           release_branches: main
 
       - name: Build for all platforms
