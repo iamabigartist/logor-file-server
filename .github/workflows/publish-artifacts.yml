@@ -1,0 +1,84 @@
+name: Publish Build Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_directory:
+        description: "Build directory name (e.g., build-20251112-172020)"
+        required: true
+        type: string
+      release_name:
+        description: "Release name/tag (optional)"
+        required: false
+        type: string
+
+env:
+  DOTNET_VERSION: "8.0.x"
+
+jobs:
+  publish-artifacts:
+    name: Publish Build Artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Validate build directory
+        id: validate-dir
+        run: |
+          BUILD_DIR="${{ github.workspace }}/publish/${{ inputs.build_directory }}"
+          echo "Checking build directory: $BUILD_DIR"
+          if [ ! -d "$BUILD_DIR" ]; then
+            echo "❌ Build directory not found: $BUILD_DIR"
+            echo "Available build directories:"
+            ls -la "${{ github.workspace }}/publish/" || echo "No publish directory found"
+            exit 1
+          fi
+          echo "✅ Build directory found: $BUILD_DIR"
+
+      - name: List build contents
+        run: |
+          BUILD_DIR="${{ github.workspace }}/publish/${{ inputs.build_directory }}"
+          echo "📁 Build directory contents:"
+          ls -la "$BUILD_DIR"
+          echo ""
+          echo "📊 Platform directories:"
+          find "$BUILD_DIR" -maxdepth 1 -type d | tail -n +2
+
+      - name: Create single artifact
+        run: |
+          BUILD_DIR="${{ github.workspace }}/publish/${{ inputs.build_directory }}"
+          ARTIFACT_NAME="${{ inputs.build_directory }}"
+
+          echo "📦 Creating single artifact: $ARTIFACT_NAME.zip"
+
+          # Create zip archive of the entire build directory
+          cd "$BUILD_DIR"
+          zip -r "${{ github.workspace }}/$ARTIFACT_NAME.zip" ./*
+          cd "${{ github.workspace }}"
+
+          echo "✅ Created artifact: $ARTIFACT_NAME.zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.build_directory }}
+          path: ${{ github.workspace }}/${{ inputs.build_directory }}.zip
+          retention-days: 30
+
+      - name: Show artifact summary
+        run: |
+          echo "🎉 Build artifact published successfully!"
+          echo "📁 Build directory: ${{ inputs.build_directory }}"
+          echo "📦 Single artifact created: ${{ inputs.build_directory }}.zip"
+          echo "📥 Available for download in workflow run artifacts"
+
+          if [ -n "${{ inputs.release_name }}" ]; then
+            echo "🏷️  Release name: ${{ inputs.release_name }}"
+          fi
