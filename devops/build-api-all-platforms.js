@@ -22,7 +22,7 @@ const timestamp = new Date()
   .replace(/[-:]/g, "")
   .split(".")[0]
   .replace("T", "-");
-const baseOutputPath = `publish/build-${timestamp}`;
+const baseOutputPath = `publish/build-${configuration}-${timestamp}`;
 
 console.log(
   "\x1b[32m%s\x1b[0m",
