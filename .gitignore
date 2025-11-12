@@ -81,3 +81,6 @@ $RECYCLE.BIN/
 
 # Rider
 .idea/
+
+#npm
+node_modules/
