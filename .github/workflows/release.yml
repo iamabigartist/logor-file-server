@@ -63,28 +63,6 @@ jobs:
           echo "build_directory=$BUILD_DIR_NAME" >> $GITHUB_OUTPUT
           echo "📁 Build directory: $BUILD_DIR_NAME"
 
-      - name: Create platform-specific archives
-        run: |
-          BUILD_DIR="publish/${{ steps.get_build_dir.outputs.build_directory }}"
-          VERSION="${{ steps.tag_version.outputs.new_tag }}"
-
-          echo "📦 Creating platform-specific archives..."
-
-          # Create archives for each platform
-          for platform_dir in "$BUILD_DIR"/*/; do
-            if [ -d "$platform_dir" ]; then
-              platform=$(basename "$platform_dir")
-              archive_name="LogorFileServer-$VERSION-$platform"
-              
-              echo "📦 Creating $archive_name.zip"
-              cd "$platform_dir"
-              zip -r "${{ github.workspace }}/$archive_name.zip" ./*
-              cd "${{ github.workspace }}"
-              
-              echo "✅ Created: $archive_name.zip"
-            fi
-          done
-
       - name: Create single multi-platform archive
         run: |
           BUILD_DIR="publish/${{ steps.get_build_dir.outputs.build_directory }}"
@@ -117,20 +95,14 @@ jobs:
             ## Downloads
 
             - **All Platforms**: LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-all-platforms.zip
-            - **Windows x64**: LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-win-x64.zip
-            - **Linux x64**: LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-linux-x64.zip
-            - **macOS x64**: LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-osx-x64.zip
 
             ## Usage
 
-            Extract the archive for your platform and run the executable:
+            Extract the all-platforms archive, navigate to the folder for your platform, and run the executable:
             - Windows: `LogorFileServer.Api.exe`
             - Linux/macOS: `./LogorFileServer.Api`
           files: |
             LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-all-platforms.zip
-            LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-win-x64.zip
-            LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-linux-x64.zip
-            LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-osx-x64.zip
 
       - name: Show release summary
         run: |
