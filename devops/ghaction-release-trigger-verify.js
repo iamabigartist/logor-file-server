@@ -1,151 +1,127 @@
 #!/usr/bin/env node
 
-const { execSync, exec } = require("child_process");
+const { exec } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const AdmZip = require("adm-zip");
 const util = require("util");
-
+const pRetry = require("p-retry").default;
 const execAsync = util.promisify(exec);
 
-// Configuration
 const workflowName = "release.yml";
 const bump = "patch";
 const configuration = "Release";
-const pollInterval = 10000; // 10 seconds
+
+async function retry({ name = "", retries, minTimeout, maxTimeout }, fn) {
+  return await pRetry(fn, {
+    retries: retries,
+    minTimeout: minTimeout,
+    maxTimeout: maxTimeout,
+    onFailedAttempt: (e) => {
+      if (e.retriesLeft === 0) {
+        console.log(`${name} failed with ${e.retriesConsumed} retries.`);
+        console.log(`The last error: ${e.error}`);
+      }
+    },
+  });
+}
+
 async function main() {
-  // Generate unique dispatch ID
+  // ---------- 1. 生成 dispatchId ----------
   const dispatchId = `trigger-${Date.now()}-${Math.random()
     .toString(36)
     .substr(2, 9)}`;
   console.log(`Generated dispatch ID: ${dispatchId}`);
 
-  console.log("Triggering release workflow...");
-  try {
-    execSync(
-      `gh workflow run ${workflowName} -f bump=${bump} -f configuration=${configuration} -f dispatch_id=${dispatchId}`
-    );
-    console.log("Workflow triggered.");
-  } catch (error) {
-    console.error("Failed to trigger workflow:", error.message);
-    process.exit(1);
-  }
+  // ---------- 2. 触发 workflow ----------
+  await execAsync(
+    `gh workflow run ${workflowName} -f bump=${bump} -f configuration=${configuration} -f dispatch_id=${dispatchId}`
+  );
+  console.log("Workflow triggered.");
 
-  // Find the correct run ID by matching the dispatch ID in displayTitle
-  let runId;
-
-  while (!runId) {
-    try {
-      console.log("Finding run...");
-
-      // Get recent runs with displayTitle
-      const { stdout: runsStdout } = await execAsync(
-        `gh run list --workflow=${workflowName} --limit 10 --json databaseId,status,createdAt,displayTitle`
+  const runId = await retry(
+    { name: "Find run", retries: 10, minTimeout: 500 },
+    async () => {
+      const { stdout } = await execAsync(
+        `gh run list --workflow=${workflowName} --limit 10 --json databaseId,displayTitle`
       );
-      const recentRuns = JSON.parse(runsStdout);
-
-      // Check each run to find the one with matching dispatch ID in displayTitle
-      for (const run of recentRuns) {
-        if (run.displayTitle && run.displayTitle.includes(dispatchId)) {
-          runId = run.databaseId;
-          console.log(`Found matching run ID: ${runId}`);
-          break;
-        }
-      }
-
-      if (runId) {
-        console.log(`Monitoring run ID: ${runId}`);
-        break;
-      } else {
-        console.log("Run not found yet, waiting 5 seconds...");
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-      }
-    } catch (error) {
-      console.error("Error finding run:", error.message);
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+      const runs = JSON.parse(stdout);
+      const run = runs.find((r) => r.displayTitle?.includes(dispatchId));
+      if (!run) throw new Error("run not found");
+      console.log(`Found run ID: ${run.databaseId}`);
+      return run.databaseId;
     }
-  }
+  );
 
-  // Poll for completion
-  while (true) {
-    try {
+  const { stdout } = await execAsync(`gh run view ${runId}`);
+  console.log(stdout);
+
+  await retry(
+    {
+      name: "Wait run completion",
+      retries: Infinity,
+      minTimeout: 1000,
+      maxTimeout: 5000,
+    },
+    async () => {
       const { stdout } = await execAsync(
         `gh run view ${runId} --json status,conclusion`
       );
       const { status, conclusion } = JSON.parse(stdout);
-      console.log(`Status: ${status}, Conclusion: ${conclusion || "pending"}`);
-
-      if (status === "completed") {
-        if (conclusion === "success") {
-          console.log("Workflow completed successfully.");
-          break;
-        } else {
-          console.error(`Workflow failed with conclusion: ${conclusion}`);
-          process.exit(1);
-        }
-      }
-    } catch (error) {
-      console.error("Error polling run:", error.message);
+      if (status !== "completed") throw new Error("still running");
+      if (conclusion !== "success") throw new Error(`failed: ${conclusion}`);
+      console.log("Workflow completed successfully.");
     }
+  );
 
-    await new Promise((resolve) => setTimeout(resolve, pollInterval));
-  }
-
-  // Get the tag from the run logs or latest release
-  let tag;
-  try {
-    const { stdout } = await execAsync(`gh run view ${runId} --log`);
-    const match = stdout.match(/Version:\s*(v[\d\w.-]+)/);
-    if (match) {
-      tag = match[1];
-      console.log(`Release tag: ${tag}`);
-    } else {
-      throw new Error("Version not found in logs");
+  // ---------- 5. 无限等待 tag 出现在日志 ----------
+  const tag = await retry(
+    { name: "Extract tag", retries: Infinity },
+    async () => {
+      const { stdout } = await execAsync(`gh run view ${runId} --log`);
+      const m = stdout.match(/Version:\s*(v[\d\w.-]+)/);
+      if (!m) throw new Error("tag not in logs");
+      console.log(`Release tag: ${m[1]}`);
+      return m[1];
     }
-  } catch (error) {
-    console.error("Failed to get tag:", error.message);
-    process.exit(1);
-  }
+  );
 
-  // Download the zip
+  // ---------- 6. 下载 release（这里也用有限次重试，防止网络抖动） ----------
   const downloadDir = "publish/downloads";
   fs.mkdirSync(downloadDir, { recursive: true });
   const zipFile = `LogorFileServer-${tag}-all-platforms.zip`;
   const zipPath = path.join(downloadDir, zipFile);
+  await retry(
+    { name: "Download release", retries: 5, minTimeout: 3000 },
+    async () => {
+      await execAsync(
+        `gh release download ${tag} --pattern "${zipFile}" --dir ${downloadDir}`,
+        { stdio: "ignore" }
+      );
+      if (!fs.existsSync(zipPath)) throw new Error("download failed");
+      console.log(`Downloaded: ${zipFile}`);
+    }
+  );
 
-  try {
-    execSync(
-      `gh release download ${tag} --pattern "${zipFile}" --dir ${downloadDir}`
-    );
-    console.log(`Downloaded ${zipFile} to ${downloadDir}`);
-  } catch (error) {
-    console.error("Failed to download release:", error.message);
-    process.exit(1);
-  }
-
-  // Verify files
-  console.log("Verifying files...");
+  // ---------- 7. 验证 ZIP ----------
   const zip = new AdmZip(zipPath);
   const entries = zip.getEntries();
-
   const requiredFiles = [
     "win-x64/LogorFileServer.Api.exe",
     "linux-x64/LogorFileServer.Api",
     "osx-x64/LogorFileServer.Api",
   ];
 
-  requiredFiles.forEach((file) => {
-    if (entries.some((entry) => entry.entryName === file)) {
-      console.log(`✅ ${file} exists`);
-    } else {
-      console.error(`❌ ${file} missing`);
+  requiredFiles.forEach((f) => {
+    if (!entries.some((e) => e.entryName === f)) {
+      console.log(`Missing ${f}`);
     }
   });
 
-  console.log("Verification complete.");
+  console.log("File verification complete.");
 }
 
-main().catch((error) => {
-  console.error("Script failed:", error);
+main().catch((err) => {
+  console.error("Script failed:", err);
   process.exit(1);
 });
