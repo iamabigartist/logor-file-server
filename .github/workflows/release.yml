@@ -1,5 +1,7 @@
 name: Release
 
+run-name: Release #${{ github.run_number }} (${{ inputs.bump }}) started at ${{ github.event.repository.updated_at }}
+
 on:
   workflow_dispatch:
     inputs:
