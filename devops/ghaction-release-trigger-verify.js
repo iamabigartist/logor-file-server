@@ -31,45 +31,25 @@ async function main() {
     process.exit(1);
   }
 
-  // Find the correct run ID by matching the dispatch ID in step names
+  // Find the correct run ID by matching the dispatch ID in displayTitle
   let runId;
 
   while (!runId) {
     try {
       console.log("Finding run...");
 
-      // Get recent runs
+      // Get recent runs with displayTitle
       const { stdout: runsStdout } = await execAsync(
-        `gh run list --workflow=${workflowName} --limit 10 --json databaseId,status,createdAt`
+        `gh run list --workflow=${workflowName} --limit 10 --json databaseId,status,createdAt,displayTitle`
       );
       const recentRuns = JSON.parse(runsStdout);
 
-      // Check each run to find the one with matching dispatch ID
+      // Check each run to find the one with matching dispatch ID in displayTitle
       for (const run of recentRuns) {
-        try {
-          // Get the jobs for this run
-          const { stdout: jobsStdout } = await execAsync(
-            `gh run view ${run.databaseId} --json jobs`
-          );
-          const jobs = JSON.parse(jobsStdout);
-
-          // Check all steps in the first job for matching dispatch ID
-          if (jobs.jobs && jobs.jobs.length > 0) {
-            const firstJob = jobs.jobs[0];
-            if (firstJob.steps && firstJob.steps.length > 0) {
-              for (const step of firstJob.steps) {
-                if (step.name && step.name.includes(dispatchId)) {
-                  runId = run.databaseId;
-                  console.log(`Found matching run ID: ${runId}`);
-                  break;
-                }
-              }
-              if (runId) break;
-            }
-          }
-        } catch (error) {
-          console.warn(`Error checking run ${run.databaseId}:`, error.message);
-          continue;
+        if (run.displayTitle && run.displayTitle.includes(dispatchId)) {
+          runId = run.databaseId;
+          console.log(`Found matching run ID: ${runId}`);
+          break;
         }
       }
 
