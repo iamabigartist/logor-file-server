@@ -8,6 +8,7 @@ const util = require("util");
 const pRetry = require("p-retry").default;
 const execAsync = util.promisify(exec);
 
+const bump = "patch";
 const workflowName = "release.yml";
 const configuration = "Release";
 
@@ -34,7 +35,7 @@ async function main() {
 
   // ---------- 2. 触发 workflow ----------
   await execAsync(
-    `gh workflow run ${workflowName} -f configuration=${configuration} -f dispatch_id=${dispatchId}`
+    `gh workflow run ${workflowName} -f bump=${bump} -f configuration=${configuration} -f dispatch_id=${dispatchId}`
   );
   console.log("Workflow triggered.");
 

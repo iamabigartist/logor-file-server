@@ -8,7 +8,7 @@ on:
       bump:
         description: "Semantic version bump level"
         required: true
-        default: "major"
+        default: "patch"
         type: choice
         options:
           - patch
@@ -56,8 +56,6 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           release_branches: master
           default_bump: ${{ inputs.bump }}
-          pre_release: false
-          default_prerelease_bump: false
 
       - name: Build for all platforms
         run: |
