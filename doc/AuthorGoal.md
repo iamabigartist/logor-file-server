@@ -8,3 +8,4 @@
 - 在DI基础上，使用AspectCore框架来支持AOP编程
 - 使用单独测试项目来自动测试项目的各个层级功能
 - 不需要如SwaggerUI等可视化API测试界面
+- 使用GitHub workflow action来发布包
