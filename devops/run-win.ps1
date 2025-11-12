@@ -1,0 +1,1 @@
+.\LogorFileServer.Api.exe
