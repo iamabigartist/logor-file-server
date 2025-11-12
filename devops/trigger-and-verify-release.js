@@ -13,8 +13,6 @@ const workflowName = "release.yml";
 const bump = "patch";
 const configuration = "Release";
 const pollInterval = 10000; // 10 seconds
-const maxAttempts = 60; // 10 minutes max
-
 async function main() {
   // Generate unique dispatch ID
   const dispatchId = `trigger-${Date.now()}-${Math.random()
@@ -33,14 +31,12 @@ async function main() {
     process.exit(1);
   }
 
-  // Wait and retry to find the correct run ID by matching the dispatch ID in step names
+  // Find the correct run ID by matching the dispatch ID in step names
   let runId;
-  let findAttempts = 0;
-  const maxFindAttempts = 12; // 1 minute max (5 seconds * 12)
 
-  while (!runId && findAttempts < maxFindAttempts) {
+  while (!runId) {
     try {
-      console.log(`Finding run attempt ${findAttempts + 1}...`);
+      console.log("Finding run...");
 
       // Get recent runs
       const { stdout: runsStdout } = await execAsync(
@@ -81,27 +77,17 @@ async function main() {
         console.log(`Monitoring run ID: ${runId}`);
         break;
       } else {
-        console.log(`Run not found yet, waiting 5 seconds...`);
+        console.log("Run not found yet, waiting 5 seconds...");
         await new Promise((resolve) => setTimeout(resolve, 5000));
-        findAttempts++;
       }
     } catch (error) {
       console.error("Error finding run:", error.message);
       await new Promise((resolve) => setTimeout(resolve, 5000));
-      findAttempts++;
     }
   }
 
-  if (!runId) {
-    console.error(
-      "Failed to get run ID: Could not find workflow run with matching dispatch ID after multiple attempts"
-    );
-    process.exit(1);
-  }
-
   // Poll for completion
-  let attempts = 0;
-  while (attempts < maxAttempts) {
+  while (true) {
     try {
       const { stdout } = await execAsync(
         `gh run view ${runId} --json status,conclusion`
@@ -122,13 +108,7 @@ async function main() {
       console.error("Error polling run:", error.message);
     }
 
-    attempts++;
     await new Promise((resolve) => setTimeout(resolve, pollInterval));
-  }
-
-  if (attempts >= maxAttempts) {
-    console.error("Workflow monitoring timed out.");
-    process.exit(1);
   }
 
   // Get the tag from the run logs or latest release
