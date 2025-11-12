@@ -1,6 +1,6 @@
 name: Release
 
-run-name: "Release #${{ github.run_number }} (${{ inputs.bump }}) started at ${{ github.event.repository.updated_at }}"
+run-name: "Release #${{ github.run_number }} (${{ inputs.bump }}) ${{inputs.dispatch_id}}"
 
 on:
   workflow_dispatch:
@@ -39,10 +39,6 @@ jobs:
       contents: write # For creating releases and tags
 
     steps:
-      - name: "Dispatch ID: ${{ inputs.dispatch_id }}"
-        run: |
-          echo "Dispatch ID: ${{ inputs.dispatch_id }}"
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
