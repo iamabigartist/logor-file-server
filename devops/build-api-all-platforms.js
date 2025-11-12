@@ -103,8 +103,3 @@ if (allSucceeded) {
 } else {
   console.log("\x1b[31m%s\x1b[0m", "\n💥 Some builds failed!");
 }
-require("readline")
-  .createInterface({ input: process.stdin, output: process.stdout })
-  .question("\nPress Enter to exit...", () =>
-    process.exit(allSucceeded ? 0 : 1)
-  );
