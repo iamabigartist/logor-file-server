@@ -1,178 +1,142 @@
 name: Release
 
 on:
-    workflow_dispatch:
-        inputs:
-            bump:
-                description: "Semantic version bump level"
-                required: true
-                default: "patch"
-                type: choice
-                options:
-                    - patch
-                    - minor
-                    - major
-            configuration:
-                description: "Build configuration"
-                required: false
-                default: "Release"
-                type: choice
-                options:
-                    - Release
-                    - Debug
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Semantic version bump level"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      configuration:
+        description: "Build configuration"
+        required: false
+        default: "Release"
+        type: choice
+        options:
+          - Release
+          - Debug
 
 env:
-    DOTNET_VERSION: "8.0.x"
+  DOTNET_VERSION: "9.0.x"
 
 jobs:
-    release:
-        name: Create Release
-        runs-on: ubuntu-latest
-        permissions:
-            contents: write # For creating releases and tags
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # For creating releases and tags
 
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v4
-              with:
-                  fetch-depth: 0 # Required for git history and tags
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required for git history and tags
 
-            - name: Setup .NET
-              uses: actions/setup-dotnet@v4
-              with:
-                  dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
-            - name: Get current version
-              id: get_version
-              run: |
-                  # Try to get version from csproj file
-                  VERSION=$(grep -oP '<Version>\K[^<]+' src/LogorFileServer.Api/LogorFileServer.Api.csproj || echo "0.0.0")
-                  echo "Current version: $VERSION"
-                  echo "current_version=$VERSION" >> $GITHUB_OUTPUT
+      - name: Bump version and create tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: ${{ inputs.bump }}
+          release_branches: main
 
-            - name: Bump version
-              id: bump_version
-              uses: christian-draeger/increment-semantic-version@1.0.3
-              with:
-                  current-version: ${{ steps.get_version.outputs.current_version }}
-                  version-fragment: ${{ inputs.bump }}
+      - name: Build for all platforms
+        run: |
+          echo "🏗️ Building for all platforms..."
+          node devops/build-api-all-platforms.js --configuration ${{ inputs.configuration }}
 
-            - name: Update version in csproj
-              run: |
-                  NEW_VERSION="${{ steps.bump_version.outputs.new-version }}"
-                  echo "Updating version to: $NEW_VERSION"
+      - name: Get build directory
+        id: get_build_dir
+        run: |
+          BUILD_DIR=$(find publish -name "build-*" -type d | head -1)
+          BUILD_DIR_NAME=$(basename "$BUILD_DIR")
+          echo "build_directory=$BUILD_DIR_NAME" >> $GITHUB_OUTPUT
+          echo "📁 Build directory: $BUILD_DIR_NAME"
 
-                  # Update version in API project
-                  sed -i "s/<Version>.*<\/Version>/<Version>$NEW_VERSION<\/Version>/" src/LogorFileServer.Api/LogorFileServer.Api.csproj
+      - name: Create platform-specific archives
+        run: |
+          BUILD_DIR="publish/${{ steps.get_build_dir.outputs.build_directory }}"
+          VERSION="${{ steps.tag_version.outputs.new_tag }}"
 
-                  # Update version in Core project
-                  sed -i "s/<Version>.*<\/Version>/<Version>$NEW_VERSION<\/Version>/" src/LogorFileServer.Core/LogorFileServer.Core.csproj
+          echo "📦 Creating platform-specific archives..."
 
-                  echo "✅ Version updated to $NEW_VERSION"
+          # Create archives for each platform
+          for platform_dir in "$BUILD_DIR"/*/; do
+            if [ -d "$platform_dir" ]; then
+              platform=$(basename "$platform_dir")
+              archive_name="LogorFileServer-$VERSION-$platform"
+              
+              echo "📦 Creating $archive_name.zip"
+              cd "$platform_dir"
+              zip -r "${{ github.workspace }}/$archive_name.zip" ./*
+              cd "${{ github.workspace }}"
+              
+              echo "✅ Created: $archive_name.zip"
+            fi
+          done
 
-            - name: Build for all platforms
-              run: |
-                  echo "🏗️ Building for all platforms..."
-                  node devops/build-api-all-platforms.js --configuration ${{ inputs.configuration }}
+      - name: Create single multi-platform archive
+        run: |
+          BUILD_DIR="publish/${{ steps.get_build_dir.outputs.build_directory }}"
+          VERSION="${{ steps.tag_version.outputs.new_tag }}"
+          ARCHIVE_NAME="LogorFileServer-$VERSION-all-platforms"
 
-            - name: Get build directory
-              id: get_build_dir
-              run: |
-                  BUILD_DIR=$(find publish -name "build-*" -type d | head -1)
-                  BUILD_DIR_NAME=$(basename "$BUILD_DIR")
-                  echo "build_directory=$BUILD_DIR_NAME" >> $GITHUB_OUTPUT
-                  echo "📁 Build directory: $BUILD_DIR_NAME"
+          echo "📦 Creating multi-platform archive: $ARCHIVE_NAME.zip"
 
-            - name: Create platform-specific archives
-              run: |
-                  BUILD_DIR="publish/${{ steps.get_build_dir.outputs.build_directory }}"
-                  VERSION="${{ steps.bump_version.outputs.new-version }}"
+          # Create zip archive of the entire build directory
+          cd "$BUILD_DIR"
+          zip -r "${{ github.workspace }}/$ARCHIVE_NAME.zip" ./*
+          cd "${{ github.workspace }}"
 
-                  echo "📦 Creating platform-specific archives..."
+          echo "✅ Created: $ARCHIVE_NAME.zip"
 
-                  # Create archives for each platform
-                  for platform_dir in "$BUILD_DIR"/*/; do
-                    if [ -d "$platform_dir" ]; then
-                      platform=$(basename "$platform_dir")
-                      archive_name="LogorFileServer-$VERSION-$platform"
-                      
-                      echo "📦 Creating $archive_name.zip"
-                      cd "$platform_dir"
-                      zip -r "${{ github.workspace }}/$archive_name.zip" ./*
-                      cd "${{ github.workspace }}"
-                      
-                      echo "✅ Created: $archive_name.zip"
-                    fi
-                  done
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag_version.outputs.new_tag }}
+          name: LogorFileServer ${{ steps.tag_version.outputs.new_tag }}
+          body: |
+            # LogorFileServer ${{ steps.tag_version.outputs.new_tag }}
 
-            - name: Create single multi-platform archive
-              run: |
-                  BUILD_DIR="publish/${{ steps.get_build_dir.outputs.build_directory }}"
-                  VERSION="${{ steps.bump_version.outputs.new-version }}"
-                  ARCHIVE_NAME="LogorFileServer-$VERSION-all-platforms"
+            ## Release Notes
 
-                  echo "📦 Creating multi-platform archive: $ARCHIVE_NAME.zip"
+            - Built for multiple platforms: Windows, Linux, and macOS
+            - Configuration: ${{ inputs.configuration }}
+            - Version bump: ${{ inputs.bump }}
 
-                  # Create zip archive of the entire build directory
-                  cd "$BUILD_DIR"
-                  zip -r "${{ github.workspace }}/$ARCHIVE_NAME.zip" ./*
-                  cd "${{ github.workspace }}"
+            ## Downloads
 
-                  echo "✅ Created: $ARCHIVE_NAME.zip"
+            - **All Platforms**: LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-all-platforms.zip
+            - **Windows x64**: LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-win-x64.zip
+            - **Linux x64**: LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-linux-x64.zip
+            - **macOS x64**: LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-osx-x64.zip
 
-            - name: Create Git tag
-              run: |
-                  VERSION="${{ steps.bump_version.outputs.new-version }}"
-                  TAG_NAME="v$VERSION"
+            ## Usage
 
-                  echo "🏷️ Creating Git tag: $TAG_NAME"
+            Extract the archive for your platform and run the executable:
+            - Windows: `LogorFileServer.Api.exe`
+            - Linux/macOS: `./LogorFileServer.Api`
+          files: |
+            LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-all-platforms.zip
+            LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-win-x64.zip
+            LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-linux-x64.zip
+            LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-osx-x64.zip
 
-                  git config --local user.email "action@github.com"
-                  git config --local user.name "GitHub Action"
-                  git add src/LogorFileServer.Api/LogorFileServer.Api.csproj src/LogorFileServer.Core/LogorFileServer.Core.csproj
-                  git commit -m "Bump version to $VERSION"
-                  git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
-                  git push origin "$TAG_NAME"
-
-                  echo "✅ Tag $TAG_NAME created and pushed"
-
-            - name: Create GitHub Release
-              uses: softprops/action-gh-release@v2
-              with:
-                  tag_name: v${{ steps.bump_version.outputs.new-version }}
-                  name: LogorFileServer v${{ steps.bump_version.outputs.new-version }}
-                  body: |
-                      # LogorFileServer v${{ steps.bump_version.outputs.new-version }}
-
-                      ## Release Notes
-
-                      - Built for multiple platforms: Windows, Linux, and macOS
-                      - Configuration: ${{ inputs.configuration }}
-                      - Version bump: ${{ inputs.bump }}
-
-                      ## Downloads
-
-                      - **All Platforms**: LogorFileServer-${{ steps.bump_version.outputs.new-version }}-all-platforms.zip
-                      - **Windows x64**: LogorFileServer-${{ steps.bump_version.outputs.new-version }}-win-x64.zip
-                      - **Linux x64**: LogorFileServer-${{ steps.bump_version.outputs.new-version }}-linux-x64.zip
-                      - **macOS x64**: LogorFileServer-${{ steps.bump_version.outputs.new-version }}-osx-x64.zip
-
-                      ## Usage
-
-                      Extract the archive for your platform and run the executable:
-                      - Windows: `LogorFileServer.Api.exe`
-                      - Linux/macOS: `./LogorFileServer.Api`
-                  files: |
-                      LogorFileServer-${{ steps.bump_version.outputs.new-version }}-all-platforms.zip
-                      LogorFileServer-${{ steps.bump_version.outputs.new-version }}-win-x64.zip
-                      LogorFileServer-${{ steps.bump_version.outputs.new-version }}-linux-x64.zip
-                      LogorFileServer-${{ steps.bump_version.outputs.new-version }}-osx-x64.zip
-
-            - name: Show release summary
-              run: |
-                  echo "🎉 Release created successfully!"
-                  echo "🏷️  Version: ${{ steps.bump_version.outputs.new-version }}"
-                  echo "📦 Build configuration: ${{ inputs.configuration }}"
-                  echo "🔄 Version bump: ${{ inputs.bump }}"
-                  echo "📁 Build directory: ${{ steps.get_build_dir.outputs.build_directory }}"
-                  echo "📥 Release available at: https://github.com/${{ github.repository }}/releases/tag/v${{ steps.bump_version.outputs.new-version }}"
+      - name: Show release summary
+        run: |
+          echo "🎉 Release created successfully!"
+          echo "🏷️  Version: ${{ steps.tag_version.outputs.new_tag }}"
+          echo "📦 Build configuration: ${{ inputs.configuration }}"
+          echo "🔄 Version bump: ${{ inputs.bump }}"
+          echo "📁 Build directory: ${{ steps.get_build_dir.outputs.build_directory }}"
+          echo "📥 Release available at: https://github.com/${{ github.repository }}/releases/tag/${{ steps.tag_version.outputs.new_tag }}"
