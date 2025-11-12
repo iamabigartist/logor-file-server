@@ -3,10 +3,14 @@ name: Publish Build Artifacts
 on:
   workflow_dispatch:
     inputs:
-      build_directory:
-        description: "Build directory name (e.g., build-20251112-172020)"
-        required: true
-        type: string
+      configuration:
+        description: "Build configuration"
+        required: false
+        type: choice
+        options:
+          - Release
+          - Debug
+        default: "Release"
       release_name:
         description: "Release name/tag (optional)"
         required: false
@@ -16,8 +20,8 @@ env:
   DOTNET_VERSION: "8.0.x"
 
 jobs:
-  publish-artifacts:
-    name: Publish Build Artifacts
+  build-and-publish:
+    name: Build and Publish Artifacts
     runs-on: ubuntu-latest
 
     steps:
@@ -29,22 +33,30 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Validate build directory
-        id: validate-dir
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
         run: |
-          BUILD_DIR="${{ github.workspace }}/publish/${{ inputs.build_directory }}"
-          echo "Checking build directory: $BUILD_DIR"
-          if [ ! -d "$BUILD_DIR" ]; then
-            echo "❌ Build directory not found: $BUILD_DIR"
-            echo "Available build directories:"
-            ls -la "${{ github.workspace }}/publish/" || echo "No publish directory found"
-            exit 1
-          fi
-          echo "✅ Build directory found: $BUILD_DIR"
+          npm install
+
+      - name: Build for all platforms
+        id: build
+        run: |
+          echo "🏗️ Building for all platforms..."
+          node devops/build-api-all-platforms.js --configuration ${{ inputs.configuration }}
+
+          # Extract the build directory name from the build script output
+          BUILD_DIR=$(find publish -name "build-*" -type d | head -1)
+          BUILD_DIR_NAME=$(basename "$BUILD_DIR")
+          echo "build_directory=$BUILD_DIR_NAME" >> $GITHUB_OUTPUT
+          echo "📁 Build directory: $BUILD_DIR_NAME"
 
       - name: List build contents
         run: |
-          BUILD_DIR="${{ github.workspace }}/publish/${{ inputs.build_directory }}"
+          BUILD_DIR="publish/${{ steps.build.outputs.build_directory }}"
           echo "📁 Build directory contents:"
           ls -la "$BUILD_DIR"
           echo ""
@@ -53,8 +65,8 @@ jobs:
 
       - name: Create single artifact
         run: |
-          BUILD_DIR="${{ github.workspace }}/publish/${{ inputs.build_directory }}"
-          ARTIFACT_NAME="${{ inputs.build_directory }}"
+          BUILD_DIR="publish/${{ steps.build.outputs.build_directory }}"
+          ARTIFACT_NAME="${{ steps.build.outputs.build_directory }}"
 
           echo "📦 Creating single artifact: $ARTIFACT_NAME.zip"
 
@@ -68,15 +80,16 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.build_directory }}
-          path: ${{ github.workspace }}/${{ inputs.build_directory }}.zip
+          name: ${{ steps.build.outputs.build_directory }}
+          path: ${{ github.workspace }}/${{ steps.build.outputs.build_directory }}.zip
           retention-days: 30
 
       - name: Show artifact summary
         run: |
-          echo "🎉 Build artifact published successfully!"
-          echo "📁 Build directory: ${{ inputs.build_directory }}"
-          echo "📦 Single artifact created: ${{ inputs.build_directory }}.zip"
+          echo "🎉 Build and publish completed successfully!"
+          echo "🏗️  Build configuration: ${{ inputs.configuration }}"
+          echo "📁 Build directory: ${{ steps.build.outputs.build_directory }}"
+          echo "📦 Single artifact created: ${{ steps.build.outputs.build_directory }}.zip"
           echo "📥 Available for download in workflow run artifacts"
 
           if [ -n "${{ inputs.release_name }}" ]; then
