@@ -3,10 +3,11 @@
 const { exec } = require("child_process");
 const fs = require("fs");
 const path = require("path");
-const AdmZip = require("adm-zip");
 const util = require("util");
 const pRetry = require("p-retry").default;
 const execAsync = util.promisify(exec);
+const zlib = require("zlib");
+const tar = require("tar");
 
 const bump = "patch";
 const workflowName = "release.yml";
@@ -23,6 +24,24 @@ async function retry({ name = "", retries, minTimeout, maxTimeout }, fn) {
         console.log(`The last error: ${e.error}`);
       }
     },
+  });
+}
+
+async function getTarEntries(tgzPath) {
+  return new Promise((resolve, reject) => {
+    const entries = [];
+    fs.createReadStream(tgzPath)
+      .pipe(zlib.createGunzip())
+      .on("error", reject)
+      .pipe(
+        tar.list({
+          onentry: (entry) => {
+            entries.push(entry.path);
+          },
+        })
+      )
+      .on("error", reject)
+      .on("end", () => resolve(entries));
   });
 }
 
@@ -89,34 +108,33 @@ async function main() {
   // ---------- 6. 下载 release（这里也用有限次重试，防止网络抖动） ----------
   const downloadDir = "publish/downloads";
   fs.mkdirSync(downloadDir, { recursive: true });
-  const zipFile = `LogorFileServer-${tag}-all-platforms.zip`;
-  const zipPath = path.join(downloadDir, zipFile);
+  const tgzFile = `LogorFileServer-${tag}-all-platforms.tgz`;
+  const tgzPath = path.join(downloadDir, tgzFile);
   await retry(
     { name: "Download release", retries: 5, minTimeout: 3000 },
     async () => {
       await execAsync(
-        `gh release download ${tag} --pattern "${zipFile}" --dir ${downloadDir}`,
+        `gh release download ${tag} --pattern "${tgzFile}" --dir ${downloadDir}`,
         { stdio: "ignore" }
       );
-      if (!fs.existsSync(zipPath)) throw new Error("download failed");
-      console.log(`Downloaded: ${zipFile}`);
+      if (!fs.existsSync(tgzPath)) throw new Error("download failed");
+      console.log(`Downloaded: ${tgzFile}`);
     }
   );
 
-  // // ---------- 7. 验证 ZIP ----------
-  // const zip = new AdmZip(zipPath);
-  // const entries = zip.getEntries();
-  // const requiredFiles = [
-  //   "win-x64/LogorFileServer.Api.exe",
-  //   "linux-x64/LogorFileServer.Api",
-  //   "osx-x64/LogorFileServer.Api",
-  // ];
+  // ---------- 7. 验证 TGZ ----------
+  const entries = await getTarEntries(tgzPath);
+  const requiredFiles = [
+    "win-x64/LogorFileServer.Api.exe",
+    "linux-x64/LogorFileServer.Api",
+    "osx-x64/LogorFileServer.Api",
+  ];
 
-  // requiredFiles.forEach((f) => {
-  //   if (!entries.some((e) => e.entryName === f)) {
-  //     console.log(`Missing ${f}`);
-  //   }
-  // });
+  requiredFiles.forEach((f) => {
+    if (!entries.some((e) => e === f)) {
+      console.log(`Missing ${f}`);
+    }
+  });
 
   console.log("File verification complete.");
 }
