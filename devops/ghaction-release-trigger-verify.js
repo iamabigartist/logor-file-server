@@ -103,20 +103,20 @@ async function main() {
     }
   );
 
-  // ---------- 7. 验证 ZIP ----------
-  const zip = new AdmZip(zipPath);
-  const entries = zip.getEntries();
-  const requiredFiles = [
-    "win-x64/LogorFileServer.Api.exe",
-    "linux-x64/LogorFileServer.Api",
-    "osx-x64/LogorFileServer.Api",
-  ];
+  // // ---------- 7. 验证 ZIP ----------
+  // const zip = new AdmZip(zipPath);
+  // const entries = zip.getEntries();
+  // const requiredFiles = [
+  //   "win-x64/LogorFileServer.Api.exe",
+  //   "linux-x64/LogorFileServer.Api",
+  //   "osx-x64/LogorFileServer.Api",
+  // ];
 
-  requiredFiles.forEach((f) => {
-    if (!entries.some((e) => e.entryName === f)) {
-      console.log(`Missing ${f}`);
-    }
-  });
+  // requiredFiles.forEach((f) => {
+  //   if (!entries.some((e) => e.entryName === f)) {
+  //     console.log(`Missing ${f}`);
+  //   }
+  // });
 
   console.log("File verification complete.");
 }

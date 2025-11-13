@@ -1,6 +1,5 @@
 {
   "dependencies": {
-    "adm-zip": "^0.5.16",
     "p-retry": "^7.1.0"
   }
 }

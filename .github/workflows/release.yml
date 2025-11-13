@@ -1,7 +1,5 @@
 name: Release
-
 run-name: "Release #${{ github.run_number }} (${{ inputs.bump }}) ${{inputs.dispatch_id}}"
-
 on:
   workflow_dispatch:
     inputs:
@@ -59,8 +57,8 @@ jobs:
 
       - name: Build for all platforms
         run: |
-          echo "🏗️ Building for all platforms..."
           node devops/build-api-all-platforms.js --configuration ${{ inputs.configuration }}
+          echo "🏗️ ${{inputs.configuration}} Build for all platforms done."
 
       - name: Get build directory
         id: get_build_dir
@@ -75,15 +73,10 @@ jobs:
           BUILD_DIR="publish/${{ steps.get_build_dir.outputs.build_directory }}"
           VERSION="${{ steps.tag_version.outputs.new_tag }}"
           ARCHIVE_NAME="LogorFileServer-$VERSION-all-platforms"
-
-          echo "📦 Creating multi-platform archive: $ARCHIVE_NAME.zip"
-
-          # Create zip archive of the entire build directory
           cd "$BUILD_DIR"
-          zip -r "${{ github.workspace }}/$ARCHIVE_NAME.zip" ./*
+          tar -czf "${{ github.workspace }}/$ARCHIVE_NAME.tgz" ./*
           cd "${{ github.workspace }}"
-
-          echo "✅ Created: $ARCHIVE_NAME.zip"
+          echo "✅ Created: $ARCHIVE_NAME.tgz"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -99,17 +92,13 @@ jobs:
             - Configuration: ${{ inputs.configuration }}
             - Version bump: ${{ inputs.bump }}
 
-            ## Downloads
-
-            - **All Platforms**: LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-all-platforms.zip
-
             ## Usage
 
             Extract the all-platforms archive, navigate to the folder for your platform, and run the executable:
             - Windows: `LogorFileServer.Api.exe`
             - Linux/macOS: `./LogorFileServer.Api`
           files: |
-            LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-all-platforms.zip
+            LogorFileServer-${{ steps.tag_version.outputs.new_tag }}-all-platforms.tgz
 
       - name: Show release summary
         run: |
