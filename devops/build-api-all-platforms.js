@@ -36,6 +36,11 @@ if (!fs.existsSync(baseOutputPath)) {
   fs.mkdirSync(baseOutputPath, { recursive: true });
 }
 
+// Copy package information to build root
+const packageInfoDir = "devops/publish_package_info";
+fs.cpSync(packageInfoDir, baseOutputPath, { recursive: true });
+console.log("Package information copied successfully!");
+
 // Target runtimes
 const runtimes = [
   { name: "win-x64", output: path.join(baseOutputPath, "win-x64") },
